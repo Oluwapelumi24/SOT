@@ -1,0 +1,147 @@
+// SQLite for local dev. For production switch provider to "postgresql" and DATABASE_URL.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String?
+  userType     String?
+  createdAt    DateTime @default(now())
+
+  memberships     Membership[]
+  projectRoles    ProjectMember[]
+  folderGrants    FolderAccess[]
+  items           Item[]
+  foldersCreated  Folder[]        @relation("FolderCreator")
+  projectsCreated Project[]       @relation("ProjectCreator")
+  audit           AuditEvent[]
+}
+
+model Workspace {
+  id          String       @id @default(cuid())
+  name        String
+  createdAt   DateTime     @default(now())
+  members     Membership[]
+  projects    Project[]
+  connections Connection[]
+  audit       AuditEvent[]
+}
+
+// role: OWNER | ADMIN | MEMBER | GUEST
+model Membership {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        String    @default("MEMBER")
+  department  String?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+model Project {
+  id          String          @id @default(cuid())
+  workspaceId String
+  parentId    String?
+  name        String
+  description String?
+  createdById String
+  createdAt   DateTime        @default(now())
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent      Project?        @relation("SubProjects", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Project[]       @relation("SubProjects")
+  createdBy   User            @relation("ProjectCreator", fields: [createdById], references: [id])
+  members     ProjectMember[]
+  folders     Folder[]
+}
+
+// role: OWNER | EDITOR | CONTRIBUTOR | VIEWER
+model ProjectMember {
+  id        String  @id @default(cuid())
+  projectId String
+  userId    String
+  role      String  @default("VIEWER")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+// sensitivity: INTERNAL | CONFIDENTIAL | RESTRICTED
+model Folder {
+  id          String         @id @default(cuid())
+  projectId   String
+  parentId    String?
+  name        String
+  color       String         @default("green")
+  restricted  Boolean        @default(false)
+  sensitivity String         @default("INTERNAL")
+  createdById String
+  createdAt   DateTime       @default(now())
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent      Folder?        @relation("SubFolders", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Folder[]       @relation("SubFolders")
+  createdBy   User           @relation("FolderCreator", fields: [createdById], references: [id])
+  access      FolderAccess[]
+  items       Item[]
+}
+
+// Allow-list entry for a restricted folder: a user or a whole department.
+model FolderAccess {
+  id         String  @id @default(cuid())
+  folderId   String
+  userId     String?
+  department String?
+  folder     Folder  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  user       User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// type: FILE | LINK | NOTE ; provider: figma | jira | github | notion | confluence | gdrive | slack | miro | web
+model Item {
+  id          String   @id @default(cuid())
+  folderId    String
+  type        String
+  title       String
+  url         String?
+  provider    String?
+  content     String?
+  filePath    String?
+  mimeType    String?
+  size        Int?
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  folder      Folder   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  owner       User     @relation(fields: [ownerId], references: [id])
+}
+
+model Connection {
+  id          String    @id @default(cuid())
+  workspaceId String
+  provider    String
+  status      String    @default("connected")
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider])
+}
+
+model AuditEvent {
+  id          String    @id @default(cuid())
+  workspaceId String
+  actorId     String
+  action      String
+  target      String
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor       User      @relation(fields: [actorId], references: [id], onDelete: Cascade)
+}
